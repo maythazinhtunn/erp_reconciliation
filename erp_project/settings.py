@@ -130,3 +130,19 @@ STATICFILES_DIRS = [
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Email Configuration for Notifications
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Change to your SMTP server
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'maythazinhtun.frontiir@gmail.com'  # Configure your email
+EMAIL_HOST_PASSWORD = 'gllx pxmr zgte ttws'  # Configure your password
+DEFAULT_FROM_EMAIL = 'ERP System <maythazinhtun.frontiir@gmail.com>'
+
+# Notification Settings
+NOTIFICATION_SETTINGS = {
+    'UNMATCHED_THRESHOLD': 5,  # Send notification when >= 5 unmatched transactions
+    'NOTIFY_EMAILS': ['maythazinhtun.frontiir@gmail.com'],  # Configure recipient emails
+    'ENABLE_NOTIFICATIONS': True,
+}

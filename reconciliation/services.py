@@ -1,7 +1,22 @@
 from django.db.models import Q
-from .models import BankTransaction, Invoice, Customer, ReconciliationLog
+from .models import BankTransaction, Invoice, Customer, ReconciliationLog, NotificationLog
 import re
 from decimal import Decimal
+from django.core.mail import send_mail
+from django.conf import settings
+from django.template.loader import render_to_string
+from django.utils import timezone
+from datetime import datetime, timedelta
+import logging
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter, A4
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+from django.http import HttpResponse
+import io
+
+logger = logging.getLogger(__name__)
 
 
 class ReconciliationService:
@@ -317,4 +332,306 @@ class ReconciliationService:
                 'result': result
             })
         
-        return results 
+        # Check for unmatched transactions and send notification if needed
+        if results['unmatched'] > 0:
+            NotificationService.check_and_send_unmatched_notification()
+        
+        return results
+
+
+class NotificationService:
+    """
+    Service class to handle notifications for reconciliation events
+    """
+    
+    @staticmethod
+    def send_unmatched_transactions_notification(unmatched_transactions=None):
+        """
+        Send email notification for unmatched transactions
+        
+        Args:
+            unmatched_transactions: QuerySet of unmatched transactions. If None, fetches all unmatched
+            
+        Returns:
+            dict: Result of the notification attempt
+        """
+        if not getattr(settings, 'NOTIFICATION_SETTINGS', {}).get('ENABLE_NOTIFICATIONS', False):
+            return {'success': False, 'message': 'Notifications are disabled'}
+        
+        if unmatched_transactions is None:
+            unmatched_transactions = BankTransaction.objects.filter(status='unmatched')
+        
+        unmatched_count = unmatched_transactions.count()
+        threshold = settings.NOTIFICATION_SETTINGS.get('UNMATCHED_THRESHOLD', 5)
+        
+        if unmatched_count < threshold:
+            return {'success': False, 'message': f'Unmatched count ({unmatched_count}) below threshold ({threshold})'}
+        
+        notify_emails = settings.NOTIFICATION_SETTINGS.get('NOTIFY_EMAILS', [])
+        if not notify_emails:
+            return {'success': False, 'message': 'No notification emails configured'}
+        
+        # Prepare email context
+        total_transactions = BankTransaction.objects.count()
+        total_amount_unmatched = sum(float(t.amount) for t in unmatched_transactions)
+        
+        context = {
+            'unmatched_count': unmatched_count,
+            'total_transactions': total_transactions,
+            'total_amount_unmatched': total_amount_unmatched,
+            'threshold': threshold,
+            'transactions': unmatched_transactions[:10],  # Show first 10 in email
+            'timestamp': timezone.now(),
+        }
+        
+        subject = f'ERP Alert: {unmatched_count} Unmatched Transactions Require Attention'
+        
+        # Create email message
+        message = f"""
+ERP Reconciliation Alert
+
+Dear Finance Team,
+
+We have detected {unmatched_count} unmatched bank transactions that require your attention.
+
+Summary:
+- Total Unmatched Transactions: {unmatched_count}
+- Total Transaction Amount Unmatched: ${total_amount_unmatched:,.2f}
+- Total Transactions in System: {total_transactions}
+- Alert Threshold: {threshold} transactions
+
+Recent Unmatched Transactions:
+"""
+        
+        for i, transaction in enumerate(unmatched_transactions[:5], 1):
+            message += f"""
+{i}. Transaction ID: {transaction.id}
+   Date: {transaction.date}
+   Amount: ${transaction.amount}
+   Description: {transaction.description}
+   Reference: {transaction.reference_number}
+"""
+        
+        message += f"""
+
+Please review these transactions in the ERP system and perform manual matching if necessary.
+
+System generated at: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+Best regards,
+ERP Reconciliation System
+"""
+        
+        try:
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                notify_emails,
+                fail_silently=False,
+            )
+            
+            # Log the notification
+            NotificationLog.objects.create(
+                notification_type='unmatched_transactions',
+                recipients=','.join(notify_emails),
+                unmatched_count=unmatched_count,
+                total_transactions=total_transactions,
+                success=True
+            )
+            
+            logger.info(f"Unmatched transactions notification sent to {len(notify_emails)} recipients")
+            return {
+                'success': True, 
+                'message': f'Notification sent to {len(notify_emails)} recipients',
+                'unmatched_count': unmatched_count
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Log the failed notification
+            NotificationLog.objects.create(
+                notification_type='unmatched_transactions',
+                recipients=','.join(notify_emails),
+                unmatched_count=unmatched_count,
+                total_transactions=total_transactions,
+                success=False,
+                error_message=error_msg
+            )
+            
+            logger.error(f"Failed to send unmatched transactions notification: {error_msg}")
+            return {'success': False, 'message': f'Failed to send notification: {error_msg}'}
+    
+    @staticmethod
+    def check_and_send_unmatched_notification():
+        """
+        Check if notification should be sent based on current unmatched transactions
+        
+        Returns:
+            dict: Result of the notification check and attempt
+        """
+        # Don't send notifications more than once per hour
+        one_hour_ago = timezone.now() - timedelta(hours=1)
+        recent_notification = NotificationLog.objects.filter(
+            notification_type='unmatched_transactions',
+            timestamp__gte=one_hour_ago,
+            success=True
+        ).exists()
+        
+        if recent_notification:
+            return {'success': False, 'message': 'Notification already sent within the last hour'}
+        
+        return NotificationService.send_unmatched_transactions_notification()
+
+
+class PDFExportService:
+    """
+    Service class to handle PDF export of reconciliation summaries
+    """
+    
+    @staticmethod
+    def generate_reconciliation_summary_pdf(start_date=None, end_date=None):
+        """
+        Generate a PDF report of reconciliation summary
+        
+        Args:
+            start_date: Start date for the report (optional)
+            end_date: End date for the report (optional)
+            
+        Returns:
+            HttpResponse: PDF file response
+        """
+        # Create a file-like buffer to receive PDF data
+        buffer = io.BytesIO()
+        
+        # Create the PDF object, using the buffer as its "file"
+        doc = SimpleDocTemplate(buffer, pagesize=A4)
+        elements = []
+        
+        # Get styles
+        styles = getSampleStyleSheet()
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1  # Center alignment
+        )
+        
+        # Add title
+        title = Paragraph("ERP Reconciliation Summary Report", title_style)
+        elements.append(title)
+        elements.append(Spacer(1, 12))
+        
+        # Add report date range
+        date_range_text = "Report Generated: " + timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+        if start_date and end_date:
+            date_range_text += f"<br/>Period: {start_date} to {end_date}"
+        date_range = Paragraph(date_range_text, styles['Normal'])
+        elements.append(date_range)
+        elements.append(Spacer(1, 20))
+        
+        # Filter data based on date range if provided
+        transactions_query = BankTransaction.objects.all()
+        logs_query = ReconciliationLog.objects.all().select_related('transaction', 'invoice')
+        
+        if start_date and end_date:
+            transactions_query = transactions_query.filter(date__range=[start_date, end_date])
+            logs_query = logs_query.filter(timestamp__date__range=[start_date, end_date])
+        
+        # Summary Statistics
+        total_transactions = transactions_query.count()
+        matched_transactions = transactions_query.filter(status='matched').count()
+        unmatched_transactions = transactions_query.filter(status='unmatched').count()
+        
+        total_invoices = Invoice.objects.count()
+        paid_invoices = Invoice.objects.filter(status='paid').count()
+        unpaid_invoices = Invoice.objects.filter(status='unpaid').count()
+        
+        auto_matches = logs_query.filter(matched_by='auto').count()
+        manual_matches = logs_query.filter(matched_by='manual').count()
+        
+        # Summary table
+        summary_data = [
+            ['Metric', 'Count', 'Percentage'],
+            ['Total Transactions', str(total_transactions), '100%'],
+            ['Matched Transactions', str(matched_transactions), 
+             f'{(matched_transactions/total_transactions*100):.1f}%' if total_transactions > 0 else '0%'],
+            ['Unmatched Transactions', str(unmatched_transactions), 
+             f'{(unmatched_transactions/total_transactions*100):.1f}%' if total_transactions > 0 else '0%'],
+            ['', '', ''],
+            ['Total Invoices', str(total_invoices), '100%'],
+            ['Paid Invoices', str(paid_invoices), 
+             f'{(paid_invoices/total_invoices*100):.1f}%' if total_invoices > 0 else '0%'],
+            ['Unpaid Invoices', str(unpaid_invoices), 
+             f'{(unpaid_invoices/total_invoices*100):.1f}%' if total_invoices > 0 else '0%'],
+            ['', '', ''],
+            ['Auto Matches', str(auto_matches), ''],
+            ['Manual Matches', str(manual_matches), ''],
+        ]
+        
+        summary_table = Table(summary_data, colWidths=[3*inch, 1*inch, 1*inch])
+        summary_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        
+        elements.append(Paragraph("Summary Statistics", styles['Heading2']))
+        elements.append(summary_table)
+        elements.append(Spacer(1, 20))
+        
+        # Unmatched Transactions Details
+        if unmatched_transactions > 0:
+            elements.append(Paragraph("Unmatched Transactions", styles['Heading2']))
+            
+            unmatched_list = transactions_query.filter(status='unmatched')[:20]  # Limit to first 20
+            unmatched_data = [['ID', 'Date', 'Amount', 'Description', 'Reference']]
+            
+            for transaction in unmatched_list:
+                unmatched_data.append([
+                    str(transaction.id),
+                    str(transaction.date),
+                    f'${transaction.amount}',
+                    transaction.description[:50] + '...' if len(transaction.description) > 50 else transaction.description,
+                    transaction.reference_number
+                ])
+            
+            unmatched_table = Table(unmatched_data, colWidths=[0.5*inch, 1*inch, 1*inch, 2.5*inch, 1*inch])
+            unmatched_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('FONTSIZE', (0, 1), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.lightgrey),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black)
+            ]))
+            
+            elements.append(unmatched_table)
+            
+            if unmatched_transactions > 20:
+                elements.append(Spacer(1, 12))
+                elements.append(Paragraph(f"... and {unmatched_transactions - 20} more unmatched transactions", styles['Normal']))
+        
+        # Build PDF
+        doc.build(elements)
+        
+        # Get the value of the BytesIO buffer and write it to the response
+        pdf = buffer.getvalue()
+        buffer.close()
+        
+        # Create HTTP response
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="reconciliation_summary_{timezone.now().strftime("%Y%m%d_%H%M")}.pdf"'
+        response.write(pdf)
+        
+        return response 

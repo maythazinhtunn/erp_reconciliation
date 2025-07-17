@@ -41,3 +41,21 @@ class ReconciliationLog(models.Model):
 
     def __str__(self):
         return f"Log {self.id} - Transaction {self.transaction.id} - {self.matched_by}"
+
+class NotificationLog(models.Model):
+    """Model to track sent notifications"""
+    NOTIFICATION_TYPES = [
+        ('unmatched_transactions', 'Unmatched Transactions'),
+        ('reconciliation_summary', 'Reconciliation Summary'),
+    ]
+    
+    notification_type = models.CharField(max_length=50, choices=NOTIFICATION_TYPES)
+    recipients = models.TextField()  # Store email addresses as comma-separated
+    unmatched_count = models.IntegerField(default=0)
+    total_transactions = models.IntegerField(default=0)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    success = models.BooleanField(default=True)
+    error_message = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return f"Notification {self.id} - {self.notification_type} - {self.timestamp}"

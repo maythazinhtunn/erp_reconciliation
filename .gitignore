@@ -7,4 +7,6 @@ __pycache__/
 *.pyz
 *.pywz
 *.pyzw
-*.pyzwz
+demo_new_features.py
+README_RECONCILIATION.md
+RECONCILIATION_FEATURES.md

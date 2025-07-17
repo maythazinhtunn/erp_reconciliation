@@ -30,8 +30,28 @@ class ReconciliationLogSerializer(serializers.ModelSerializer):
         model = ReconciliationLog
         fields = '__all__'
 
-class CSVUploadSerializer(serializers.Serializer):
+class FileUploadSerializer(serializers.Serializer):
     file = serializers.FileField()
+    
+    def validate_file(self, value):
+        """Validate that the uploaded file is either CSV or Excel format"""
+        if not value.name:
+            raise serializers.ValidationError("File name is required")
+        
+        # Get file extension
+        file_extension = value.name.lower().split('.')[-1]
+        
+        # Check if it's a supported format
+        supported_formats = ['csv', 'xlsx', 'xls']
+        if file_extension not in supported_formats:
+            raise serializers.ValidationError(
+                f"Unsupported file format. Supported formats: {', '.join(supported_formats)}"
+            )
+        
+        return value
+
+# Keep the old name for backward compatibility
+CSVUploadSerializer = FileUploadSerializer
 
 class BulkReconciliationSerializer(serializers.Serializer):
     transaction_ids = serializers.ListField(

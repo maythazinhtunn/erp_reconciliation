@@ -1,5 +1,6 @@
 import csv
 import io
+import pandas as pd
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -7,45 +8,108 @@ from django.shortcuts import render
 from django.views import View
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
-from .models import BankTransaction, Invoice, Customer, ReconciliationLog
-from .serializers import CSVUploadSerializer, BankTransactionSerializer, InvoiceSerializer
-from .services import ReconciliationService
+from .models import BankTransaction, Invoice, Customer, ReconciliationLog, NotificationLog
+from .serializers import FileUploadSerializer, BankTransactionSerializer, InvoiceSerializer
+from .services import ReconciliationService, NotificationService, PDFExportService
 from django.db.models import Q
+from django.http import JsonResponse
+from datetime import datetime
 
-class UploadCSVView(APIView):
+class UploadFileView(APIView):
+    """
+    Upload CSV or Excel files containing bank transaction data.
+    Supports .csv, .xlsx, and .xls formats.
+    """
     def post(self, request):
-        serializer = CSVUploadSerializer(data=request.data)
+        serializer = FileUploadSerializer(data=request.data)
         if serializer.is_valid():
-            csv_file = request.FILES['file']
-            decoded_file = csv_file.read().decode('utf-8')
-            io_string = io.StringIO(decoded_file)
-            reader = csv.DictReader(io_string)
+            uploaded_file = request.FILES['file']
+            
+            try:
+                # Determine file type and read accordingly
+                file_extension = uploaded_file.name.lower().split('.')[-1]
+                
+                if file_extension == 'csv':
+                    # Read CSV file
+                    df = pd.read_csv(uploaded_file)
+                elif file_extension in ['xlsx', 'xls']:
+                    # Read Excel file
+                    df = pd.read_excel(uploaded_file)
+                else:
+                    return Response({
+                        'error': f'Unsupported file format: {file_extension}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Validate required columns
+                required_columns = ['Date', 'Description', 'Amount', 'Reference Number']
+                missing_columns = [col for col in required_columns if col not in df.columns]
+                
+                if missing_columns:
+                    return Response({
+                        'error': f'Missing required columns: {", ".join(missing_columns)}',
+                        'required_columns': required_columns,
+                        'found_columns': list(df.columns)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Process the data
+                uploaded_transactions = []
+                reconciliation_results = []
+                errors = []
+                
+                for index, row in df.iterrows():
+                    try:
+                        # Create transaction from row data
+                        transaction = BankTransaction.objects.create(
+                            date=row['Date'],
+                            description=str(row['Description']),
+                            amount=row['Amount'],
+                            reference_number=str(row['Reference Number']) if pd.notna(row['Reference Number']) else '',
+                        )
+                        uploaded_transactions.append(transaction)
 
-            uploaded_transactions = []
-            reconciliation_results = []
+                        # Use the sophisticated ReconciliationService for automatic reconciliation
+                        result = ReconciliationService.process_transaction_reconciliation(transaction)
+                        reconciliation_results.append({
+                            'transaction_id': transaction.id,
+                            'result': result
+                        })
+                    except Exception as e:
+                        errors.append({
+                            'row': index + 1,
+                            'error': str(e)
+                        })
+                        continue
 
-            for row in reader:
-                transaction = BankTransaction.objects.create(
-                    date=row['Date'],
-                    description=row['Description'],
-                    amount=row['Amount'],
-                    reference_number=row['Reference Number'],
-                )
-                uploaded_transactions.append(transaction)
+                # Check for unmatched transactions and send notification if needed
+                unmatched_count = BankTransaction.objects.filter(status='unmatched').count()
+                notification_result = NotificationService.send_unmatched_transactions_notification()
 
-                # Use the sophisticated ReconciliationService for automatic reconciliation
-                result = ReconciliationService.process_transaction_reconciliation(transaction)
-                reconciliation_results.append({
-                    'transaction_id': transaction.id,
-                    'result': result
-                })
+                response_data = {
+                    'msg': 'Upload successful',
+                    'file_type': file_extension.upper(),
+                    'uploaded_count': len(uploaded_transactions),
+                    'reconciliation_results': reconciliation_results
+                }
+                
+                if errors:
+                    response_data['errors'] = errors
+                    response_data['error_count'] = len(errors)
+                
+                if notification_result.get('sent'):
+                    response_data['notification_sent'] = True
+                    response_data['notification_details'] = notification_result
 
-            return Response({
-                'msg': 'Upload successful',
-                'uploaded_count': len(uploaded_transactions),
-                'reconciliation_results': reconciliation_results
-            }, status=status.HTTP_201_CREATED)
+                return Response(response_data, status=status.HTTP_201_CREATED)
+                
+            except Exception as e:
+                return Response({
+                    'error': f'Failed to process file: {str(e)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# Keep the old class name for backward compatibility
+UploadCSVView = UploadFileView
 
 class UnmatchedTransactionsView(APIView):
     def get(self, request):
@@ -218,6 +282,115 @@ class UnpaidInvoicesView(APIView):
         unpaid_invoices = Invoice.objects.filter(status='unpaid').select_related('customer')
         serializer = InvoiceSerializer(unpaid_invoices, many=True)
         return Response(serializer.data)
+
+
+class NotificationManagementView(APIView):
+    """
+    API endpoint to manage notifications for unmatched transactions
+    """
+    
+    def post(self, request):
+        """Send notification for unmatched transactions manually"""
+        result = NotificationService.send_unmatched_transactions_notification()
+        
+        if result['success']:
+            return Response({
+                'msg': 'Notification sent successfully',
+                'details': result
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to send notification',
+                'details': result
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get(self, request):
+        """Get notification history"""
+        notifications = NotificationLog.objects.all().order_by('-timestamp')[:20]
+        
+        data = [
+            {
+                'id': notification.id,
+                'type': notification.notification_type,
+                'recipients': notification.recipients,
+                'unmatched_count': notification.unmatched_count,
+                'total_transactions': notification.total_transactions,
+                'timestamp': notification.timestamp,
+                'success': notification.success,
+                'error_message': notification.error_message
+            } for notification in notifications
+        ]
+        
+        return Response({
+            'notifications': data,
+            'total_count': NotificationLog.objects.count()
+        })
+
+
+class PDFExportView(APIView):
+    """
+    API endpoint to export reconciliation summary as PDF
+    """
+    
+    def get(self, request):
+        """Generate and return PDF reconciliation summary"""
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        # Validate dates if provided
+        if start_date:
+            try:
+                start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid start_date format. Use YYYY-MM-DD'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        if end_date:
+            try:
+                end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid end_date format. Use YYYY-MM-DD'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        try:
+            pdf_response = PDFExportService.generate_reconciliation_summary_pdf(start_date, end_date)
+            return pdf_response
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to generate PDF: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class NotificationSettingsView(APIView):
+    """
+    API endpoint to manage notification settings
+    """
+    
+    def get(self, request):
+        """Get current notification settings"""
+        from django.conf import settings
+        
+        notification_settings = getattr(settings, 'NOTIFICATION_SETTINGS', {})
+        
+        return Response({
+            'settings': notification_settings,
+            'unmatched_count': BankTransaction.objects.filter(status='unmatched').count()
+        })
+    
+    def post(self, request):
+        """Test notification system"""
+        # This endpoint can be used to test if notifications are working
+        test_result = NotificationService.check_and_send_unmatched_notification()
+        
+        return Response({
+            'test_result': test_result,
+            'current_unmatched': BankTransaction.objects.filter(status='unmatched').count()
+        })
 
 class ManualReconciliationView(View):
     """
