@@ -3,8 +3,12 @@ import io
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from django.shortcuts import render
+from django.views import View
+from django.contrib.auth.decorators import login_required
+from django.utils.decorators import method_decorator
 from .models import BankTransaction, Invoice, Customer, ReconciliationLog
-from .serializers import CSVUploadSerializer, BankTransactionSerializer
+from .serializers import CSVUploadSerializer, BankTransactionSerializer, InvoiceSerializer
 from .services import ReconciliationService
 from django.db.models import Q
 
@@ -205,4 +209,20 @@ class ReconciliationStatsView(APIView):
                 'total_logs': auto_matches + manual_matches
             }
         })
+
+class UnpaidInvoicesView(APIView):
+    """
+    API endpoint to get all unpaid invoices
+    """
+    def get(self, request):
+        unpaid_invoices = Invoice.objects.filter(status='unpaid').select_related('customer')
+        serializer = InvoiceSerializer(unpaid_invoices, many=True)
+        return Response(serializer.data)
+
+class ManualReconciliationView(View):
+    """
+    Template view for the manual reconciliation admin page
+    """
+    def get(self, request):
+        return render(request, 'reconciliation/manual_reconciliation.html')
 

@@ -1,0 +1,303 @@
+/* Manual Reconciliation CSS */
+
+body {
+    background-color: #f8f9fa;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Loading Overlay */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+}
+
+/* Card Enhancements */
+.card {
+    border: none;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+}
+
+.card:hover {
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+}
+
+/* Statistics Cards */
+.card.border-warning:hover {
+    border-color: #f0ad4e !important;
+}
+
+.card.border-danger:hover {
+    border-color: #d9534f !important;
+}
+
+.card.border-success:hover {
+    border-color: #5cb85c !important;
+}
+
+.card.border-info:hover {
+    border-color: #5bc0de !important;
+}
+
+/* Table Styling */
+.table-hover tbody tr:hover {
+    background-color: rgba(0, 123, 255, 0.1);
+}
+
+.table th {
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.85rem;
+    letter-spacing: 0.5px;
+}
+
+/* Search Box */
+.search-box input {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.search-box input:focus {
+    border-color: #0d6efd;
+    box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+}
+
+/* Transaction Row Styling */
+.transaction-row {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.transaction-row:hover {
+    background-color: rgba(255, 193, 7, 0.1) !important;
+}
+
+.transaction-row.selected {
+    background-color: rgba(13, 110, 253, 0.1) !important;
+    border-left: 4px solid #0d6efd;
+}
+
+/* Invoice Row Styling */
+.invoice-row {
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.invoice-row:hover {
+    background-color: rgba(220, 53, 69, 0.1) !important;
+}
+
+.invoice-row.selected {
+    background-color: rgba(13, 110, 253, 0.1) !important;
+    border-left: 4px solid #0d6efd;
+}
+
+/* Action Buttons */
+.btn-match {
+    background-color: #198754;
+    border-color: #198754;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.btn-match:hover {
+    background-color: #157347;
+    border-color: #146c43;
+    transform: scale(1.05);
+}
+
+.btn-select {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.btn-select:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+    transform: scale(1.05);
+}
+
+.btn-undo {
+    background-color: #6c757d;
+    border-color: #6c757d;
+    color: white;
+    font-size: 0.8rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    transition: all 0.3s ease;
+}
+
+.btn-undo:hover {
+    background-color: #5c636a;
+    border-color: #565e64;
+    transform: scale(1.05);
+}
+
+/* Amount Styling */
+.amount {
+    font-weight: bold;
+    font-family: 'Courier New', monospace;
+}
+
+.amount.positive {
+    color: #198754;
+}
+
+.amount.negative {
+    color: #dc3545;
+}
+
+/* Status Badges */
+.status-badge {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+.status-unmatched {
+    background-color: #fff3cd;
+    color: #856404;
+}
+
+.status-unpaid {
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.status-matched {
+    background-color: #d1e7dd;
+    color: #0f5132;
+}
+
+/* Header Styling */
+header {
+    background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%) !important;
+}
+
+/* Modal Enhancements */
+.modal-content {
+    border: none;
+    border-radius: 12px;
+}
+
+.modal-header {
+    border-bottom: 1px solid #dee2e6;
+    border-radius: 12px 12px 0 0;
+}
+
+.modal-footer {
+    border-top: 1px solid #dee2e6;
+    border-radius: 0 0 12px 12px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .card {
+        margin-bottom: 1rem;
+    }
+    
+    .table-responsive {
+        font-size: 0.9rem;
+    }
+    
+    .btn-match, .btn-select, .btn-undo {
+        font-size: 0.7rem;
+        padding: 0.2rem 0.4rem;
+    }
+}
+
+/* Animation for successful matches */
+@keyframes matchSuccess {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+
+.match-success {
+    animation: matchSuccess 0.6s ease-in-out;
+    background-color: rgba(25, 135, 84, 0.2) !important;
+}
+
+/* Drag and Drop Styles */
+.drag-over {
+    background-color: rgba(13, 110, 253, 0.2) !important;
+    border: 2px dashed #0d6efd;
+}
+
+.dragging {
+    opacity: 0.7;
+    transform: rotate(5deg);
+}
+
+/* Custom Scrollbar */
+.table-responsive::-webkit-scrollbar {
+    width: 8px;
+}
+
+.table-responsive::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 4px;
+}
+
+.table-responsive::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Empty State */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: #6c757d;
+}
+
+.empty-state i {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+    opacity: 0.5;
+}
+
+/* Highlight matching amounts */
+.amount-match {
+    background-color: rgba(25, 135, 84, 0.1);
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
+/* Quick actions toolbar */
+.quick-actions {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: white;
+    border-bottom: 1px solid #dee2e6;
+    padding: 0.5rem 1rem;
+}
+
+.quick-actions .btn {
+    margin-right: 0.5rem;
+    font-size: 0.875rem;
+} 
