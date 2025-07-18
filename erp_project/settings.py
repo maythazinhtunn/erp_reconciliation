@@ -80,7 +80,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'erpdb',
         'USER': 'erpuser',
-        'PASSWORD': 'password',  # new password here
+        'PASSWORD': 'password',  
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -136,13 +136,13 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'  # Change to your SMTP server
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'maythazinhtun.frontiir@gmail.com'  # Configure your email
-EMAIL_HOST_PASSWORD = 'gllx pxmr zgte ttws'  # Configure your password
-DEFAULT_FROM_EMAIL = 'ERP System <maythazinhtun.frontiir@gmail.com>'
+EMAIL_HOST_USER = 'example@gmail.com'  # Configure your email
+EMAIL_HOST_PASSWORD = ''  # Configure your password
+DEFAULT_FROM_EMAIL = 'ERP System <example@gmail.com>'
 
 # Notification Settings
 NOTIFICATION_SETTINGS = {
     'UNMATCHED_THRESHOLD': 5,  # Send notification when >= 5 unmatched transactions
-    'NOTIFY_EMAILS': ['maythazinhtun.frontiir@gmail.com'],  # Configure recipient emails
+    'NOTIFY_EMAILS': ['example@gmail.com'],  # Configure recipient emails
     'ENABLE_NOTIFICATIONS': True,
 }
